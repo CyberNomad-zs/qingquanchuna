@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>考勤整理启动器</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%93%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    /* 浅色操作卡 · 冷调纸面,与工具深色面板同色系 */
+    --ground:#F5F7FA;
+    --surface:#FFFFFF;
+    --hairline:#E2E8F0;
+    --rule:#CBD5E1;
+    --ink:#1A222C;        /* 借自工具 panel 色,同源 */
+    --ink-2:#475569;
+    --muted:#64748B;
+    --blue:#2563EB;       /* 工具主按钮 */
+    --cyan:#0891B2;       /* 工具次按钮 */
+    --amber:#F59E0B;      /* 工具/工具区 */
+    --red:#DC2626;        /* 停止/危险 */
+    --green:#16A34A;
+    /* 工具窗口示意 · 忠实深色 */
+    --w-ground:#0F1419;
+    --w-bar:#1A222C;
+    --w-panel:#243044;
+    --w-log:#0B1220;
+    --w-ink:#F8FAFC;
+    --w-ink-2:#CBD5E1;
+    --w-muted:#64748B;
+    --w-blue:#2563EB;
+    --w-cyan:#0891B2;
+    --w-amber:#F59E0B;
+    --w-red:#DC2626;
+    --w-slate:#475569;
+  }
+  *{box-sizing:border-box}
+  html{ -webkit-text-size-adjust:100%; }
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--ink);
+    font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;
+    font-size:15px;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{ max-width:760px; margin:0 auto; padding:48px 28px 64px; }
+
+  /* —— 头部 —— */
+  header.page{ border-bottom:1px solid var(--hairline); padding-bottom:24px; margin-bottom:32px; }
+  .eyebrow{
+    font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; margin:0 0 10px;
+  }
+  h1{
+    font-size:28px; line-height:1.25; font-weight:700; margin:0 0 10px;
+    text-wrap:balance; letter-spacing:-.01em;
+  }
+  .lede{ font-size:16px; color:var(--ink-2); margin:0; text-wrap:balance; }
+
+  /* —— 章节 —— */
+  section{ margin:40px 0; }
+  h2{
+    font-size:20px; font-weight:700; margin:0 0 18px;
+    display:flex; align-items:baseline; gap:10px;
+  }
+  h2 .n{
+    font-family:Consolas,"Cascadia Mono",Menlo,monospace;
+    font-size:13px; font-weight:600; color:var(--blue);
+    background:#EAF1FE; padding:2px 8px; border-radius:4px;
+    font-variant-numeric:tabular-nums;
+  }
+  h3{ font-size:15px; font-weight:600; margin:22px 0 8px; color:var(--ink); }
+  p{ margin:0 0 14px; }
+  ul,ol{ margin:0 0 16px; padding-left:22px; }
+  li{ margin:0 0 8px; }
+  li::marker{ color:var(--muted); font-variant-numeric:tabular-nums; }
+
+  /* —— 行内代码:文件名/路径/按钮名 —— */
+  code, .kbd{
+    font-family:Consolas,"Cascadia Mono",Menlo,monospace;
+    font-size:13px;
+    background:#EEF2F7; color:#0F172A;
+    padding:1px 6px; border-radius:4px; border:1px solid var(--hairline);
+    white-space:nowrap;
+  }
+  .btnref{ /* 模拟工具按钮的语义色小标签 */
+    font-family:Consolas,"Cascadia Mono",Menlo,monospace;
+    font-size:12.5px; font-weight:600; color:#fff;
+    padding:2px 8px; border-radius:4px; white-space:nowrap;
+    display:inline-block; vertical-align:1px;
+  }
+  .btnref.blue{ background:var(--blue); }
+  .btnref.cyan{ background:var(--cyan); }
+  .btnref.amber{ background:var(--amber); }
+  .btnref.red{ background:var(--red); }
+  .btnref.slate{ background:var(--w-slate); }
+  .btnref.green{ background:#16A34A; }
+
+  /* —— 提示框 —— */
+  .note{
+    background:var(--surface); border:1px solid var(--hairline);
+    border-left:3px solid var(--blue);
+    padding:14px 16px; border-radius:6px; margin:0 0 16px;
+  }
+  .note.amber{ border-left-color:var(--amber); }
+  .note.cyan{ border-left-color:var(--cyan); }
+  .note.red{ border-left-color:var(--red); }
+  .note .t{ font-weight:600; display:block; margin-bottom:4px; }
+  .note p:last-child{ margin-bottom:0; }
+
+  /* —— 操作步骤(序号即信息) —— */
+  ol.steps{ list-style:none; padding:0; counter-reset:step; }
+  ol.steps > li{
+    counter-increment:step;
+    position:relative; padding:0 0 0 44px; margin:0 0 22px;
+  }
+  ol.steps > li::before{
+    content:counter(step,decimal-leading-zero);
+    position:absolute; left:0; top:1px;
+    width:30px; height:30px; border-radius:50%;
+    background:var(--ink); color:#fff;
+    font-family:Consolas,"Cascadia Mono",Menlo,monospace;
+    font-size:13px; font-weight:600;
+    display:flex; align-items:center; justify-content:center;
+    font-variant-numeric:tabular-nums;
+  }
+  ol.steps > li > p:first-child{ margin-top:0; }
+  ol.steps > li > p:last-child{ margin-bottom:0; }
+
+  /* —— 工具窗口示意(忠实深色) —— */
+  .window{
+    background:var(--w-ground);
+    border-radius:10px; overflow:hidden;
+    box-shadow:0 18px 40px -16px rgba(15,20,25,.45), 0 0 0 1px rgba(0,0,0,.15);
+    margin:8px 0 4px;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  .w-titlebar{
+    background:var(--w-bar); padding:11px 16px;
+    display:flex; align-items:center; gap:10px;
+  }
+  .w-dots{ display:flex; gap:6px; }
+  .w-dots i{ width:10px; height:10px; border-radius:50%; display:block; }
+  .w-dots i:nth-child(1){ background:#F87171; }
+  .w-dots i:nth-child(2){ background:#FBBF24; }
+  .w-dots i:nth-child(3){ background:#34D399; }
+  .w-titlebar .w-name{
+    color:var(--w-muted); font-size:12px; font-family:Consolas,Menlo,monospace;
+    margin-left:6px;
+  }
+  .w-head{
+    background:var(--w-bar); padding:14px 16px 12px;
+    border-top:1px solid rgba(255,255,255,.05);
+  }
+  .w-head h4{
+    margin:0 0 3px; color:var(--w-ink); font-size:15px; font-weight:700;
+    font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  }
+  .w-head .sub{ margin:0; color:var(--w-ink-2); font-size:11.5px; }
+  .w-body{ padding:10px 12px 12px; }
+  .w-sec{
+    background:var(--w-panel); border-radius:6px; padding:9px 10px; margin-bottom:8px;
+  }
+  .w-sec .sec-h{
+    color:var(--w-ink); font-size:11.5px; font-weight:700; margin:0 0 7px;
+    font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif;
+  }
+  .w-row{ display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:6px; }
+  .w-row:last-child{ margin-bottom:0; }
+  .w-lbl{ color:var(--w-ink-2); font-size:11px; font-family:"Microsoft YaHei UI",sans-serif; }
+  .w-combo{
+    flex:1 1 auto; min-width:0;
+    background:#0B1220; color:var(--w-ink);
+    font-family:Consolas,Menlo,monospace; font-size:11px;
+    padding:3px 8px; border-radius:3px; border:1px solid #334155;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .w-btn{
+    color:#fff; font-size:10.5px; font-weight:600;
+    font-family:"Microsoft YaHei UI",sans-serif;
+    padding:3px 9px; border-radius:3px; white-space:nowrap;
+  }
+  .w-btn.slate{ background:var(--w-slate); }
+  .w-btn.blue{ background:var(--w-blue); }
+  .w-btn.cyan{ background:var(--w-cyan); }
+  .w-btn.amber{ background:var(--w-amber); }
+  .w-btn.red{ background:var(--w-red); }
+  .w-btn.green{ background:#16A34A; }
+  .w-check{
+    color:var(--w-ink); font-size:11px;
+    font-family:"Microsoft YaHei UI",sans-serif;
+    display:flex; align-items:center; gap:6px;
+  }
+  .w-check .box{
+    width:11px; height:11px; border:1.5px solid var(--w-ink-2); border-radius:2px;
+    display:inline-block;
+  }
+  .w-logbox{
+    background:var(--w-bar); border-radius:6px; padding:8px 10px; margin-top:8px;
+  }
+  .w-logbox .sec-h{ margin-bottom:5px; }
+  .w-log{
+    background:var(--w-log); color:#E2E8F0;
+    font-family:Consolas,"Cascadia Mono",Menlo,monospace;
+    font-size:10.5px; line-height:1.65;
+    border-radius:3px; padding:7px 9px;
+    white-space:pre-wrap; word-break:break-all;
+  }
+  .w-log .ok{ color:#34D399; }
+  .w-log .dim{ color:#64748B; }
+  .w-status{
+    padding:6px 16px 8px; color:var(--w-ink-2); font-size:11px;
+    font-family:"Microsoft YaHei UI",sans-serif;
+    border-top:1px solid rgba(255,255,255,.05);
+  }
+  .w-foot{
+    padding:5px 16px 8px; color:var(--w-muted); font-size:9.5px;
+    font-family:Consolas,Menlo,monospace;
+  }
+  /* 示意图上的步骤徽标 */
+  .pin{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:16px; height:16px; border-radius:50%;
+    background:var(--amber); color:#1A222C;
+    font-family:Consolas,Menlo,monospace; font-size:10px; font-weight:700;
+    margin-right:4px; vertical-align:1px;
+  }
+  .pins{ margin:14px 0 0; padding:0; list-style:none; }
+  .pins li{ margin:0 0 6px; font-size:13.5px; }
+  .pins .pin{ margin-right:8px; }
+
+  /* —— 三张结果表 —— */
+  .sheets{ border:1px solid var(--hairline); border-radius:8px; overflow:hidden; }
+  .sheets .row{
+    display:grid; grid-template-columns:1.1fr 1.4fr 1fr; gap:0;
+    border-bottom:1px solid var(--hairline);
+  }
+  .sheets .row:last-child{ border-bottom:0; }
+  .sheets .row > div{ padding:13px 16px; border-right:1px solid var(--hairline); }
+  .sheets .row > div:last-child{ border-right:0; }
+  .sheets .head{ background:#EEF2F7; font-weight:700; font-size:12px; color:var(--ink-2); }
+  .sheets .name{
+    font-family:Consolas,Menlo,monospace; font-size:12.5px; font-weight:600;
+    color:var(--ink);
+  }
+  .sheets .who{ font-size:13.5px; }
+  .sheets .gap{ font-size:13px; color:var(--ink-2); }
+  .sheets .gap .auto{ color:var(--green); font-weight:600; }
+  .sheets .gap .hand{ color:var(--amber); font-weight:600; }
+  @media (max-width:560px){
+    .sheets .row{ grid-template-columns:1fr; }
+    .sheets .row > div{ border-right:0; border-bottom:1px dashed var(--hairline); }
+    .sheets .row > div:last-child{ border-bottom:0; }
+  }
+
+  /* —— 常见问题 —— */
+  .qa{ border-bottom:1px solid var(--hairline); padding:16px 0; }
+  .qa:first-of-type{ border-top:1px solid var(--hairline); }
+  .qa .q{ font-weight:600; margin:0 0 8px; }
+  .qa .q::before{ content:"问  "; color:var(--muted); font-weight:400; font-size:13px; }
+  .qa .a{ margin:0; color:var(--ink-2); }
+  .qa .a::before{ content:"答  "; color:var(--blue); font-weight:600; font-size:13px; }
+
+  /* —— 页脚 —— */
+  footer.page{
+    margin-top:48px; padding-top:20px; border-top:1px solid var(--hairline);
+    font-size:12.5px; color:var(--muted);
+  }
+  footer.page .path{
+    font-family:Consolas,Menlo,monospace; font-size:12px;
+    color:var(--ink-2); word-break:break-all;
+  }
+  footer.page p{ margin:0 0 6px; }
+
+  @media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
+  @media print{
+    body{ background:#fff; } .wrap{ padding:20px; }
+    .window{ box-shadow:none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <p class="eyebrow">清泉出纳 · 内部工具</p>
+    <h1>考勤整理启动器 使用说明</h1>
+    <p class="lede">把钉钉导出的月度考勤报表,一键整理成三张结果表;还能和现有结果表逐列比对,核对有没有算错。</p>
+  </header>
+
+  <!-- 准备 -->
+  <section>
+    <h2><span class="n">准备</span>开始前</h2>
+    <ol>
+      <li><strong>把当月考勤报表放进工具所在文件夹</strong>。从钉钉考勤系统导出 <code>*月考勤报表_起_止.xlsx</code> 后,存到这个目录:<br>
+      <span class="path" style="display:inline-block;margin-top:4px;font-family:Consolas,Menlo,monospace;font-size:12.5px;color:var(--ink-2);background:#EEF2F7;padding:3px 8px;border-radius:4px;border:1px solid var(--hairline)">E:\project\清泉出纳\</span>
+      <div class="note amber" style="margin-top:12px">
+        <span class="t">文件名必须含「考勤报表」四个字</span>
+        <p>启动器靠文件名识别报表,扫描目录里所有 <code>*考勤报表*.xlsx</code>。名字里没有这四个字,下拉框里就看不到。</p>
+      </div>
+      </li>
+      <li><strong>电脑装过 Python 3</strong>,安装时勾过「Add python.exe to PATH」。没装过的话,启动器会报 <code>Python not found</code> —— 见下面常见问题。</li>
+    </ol>
+  </section>
+
+  <!-- 步骤 -->
+  <section>
+    <h2><span class="n">操作</span>四步出结果</h2>
+    <ol class="steps">
+      <li>
+        <p><strong>双击 <code>考勤整理启动器.bat</code></strong>。会弹出一个深色窗口,标题「清泉出纳 · 考勤整理启动器」。没有黑色命令行框弹出来是正常的(启动器刻意做了无黑窗启动)。</p>
+      </li>
+      <li>
+        <p><strong>在「考勤报表」下拉框里选当月报表</strong>(就是上一步放进去的那个文件)。如果下拉框是空的,先把报表放进目录,再点旁边的 <span class="btnref slate">刷新</span>。</p>
+      </li>
+      <li>
+        <p><strong>点 <span class="btnref blue">整理</span></strong> —— 只整理,出结果;或点 <span class="btnref cyan">整理并比对</span> —— 整理完再和现有的 <code>考勤整理结果.xlsx</code> 逐列核对差异。弹窗确认后,底部「运行输出」会开始滚字。</p>
+        <p>勾上「整理后逐列比对现有结果表」再点 <span class="btnref blue">整理</span>,效果和直接点 <span class="btnref cyan">整理并比对</span> 一样。</p>
+      </li>
+      <li>
+        <p><strong>等输出跑完,打开结果文件</strong>。看到 <code>--- 结束 exit=0 ---</code> 就是成功,会弹窗问「打开结果文件?」,点「是」直接打开。结果文件名形如 <code>7月考勤整理结果_校验.xlsx</code>,和启动器在同一个目录。</p>
+      </li>
+      <li>
+        <p><strong>整理无误后,点 <span class="btnref green">上传到飞书</span></strong>。把当月的考勤原始报表 + 整理结果一起传到飞书多维表格。脚本会自动从文件名认出是几月,在飞书里建/复用 5 张「{月}」前缀的表(考勤报表、打卡时间明细、考勤结果表、打卡异常说明、其他员工),清空后写入当月数据,历史月表不动。弹窗确认后底部跑进度,跑完问「去飞书查看?」。</p>
+        <p>每月只点一次就行;同月重复点会把该月表清空重写,不会重复堆数据。</p>
+      </li>
+    </ol>
+
+    <h3>窗口长这样,你只动圈出来的几处</h3>
+
+    <div class="window" aria-label="工具窗口示意图">
+      <div class="w-titlebar">
+        <div class="w-dots"><i></i><i></i><i></i></div>
+        <span class="w-name">清泉出纳 · 考勤整理启动器</span>
+      </div>
+      <div class="w-head">
+        <h4>清泉出纳 · 考勤整理启动器</h4>
+        <p class="sub">选考勤报表 → 整理 → 出 3 张表结果 xlsx · 可逐列比对现有结果表 · 运行输出在底部</p>
+      </div>
+      <div class="w-body">
+        <div class="w-sec">
+          <p class="sec-h">▍ 考勤整理</p>
+          <div class="w-row">
+            <span class="w-lbl">考勤报表:</span>
+            <span class="w-combo"><span class="pin">1</span>7月考勤报表_20260701_20260731.xlsx</span>
+            <span class="w-btn slate">刷新</span>
+          </div>
+          <div class="w-row">
+            <span class="w-check"><span class="box"></span>整理后逐列比对现有结果表</span>
+          </div>
+          <div class="w-row">
+            <span class="w-btn blue"><span class="pin">2</span>整理</span>
+            <span class="w-btn cyan"><span class="pin">2</span>整理并比对</span>
+            <span class="w-btn green">上传到飞书</span>
+          </div>
+        </div>
+        <div class="w-sec">
+          <p class="sec-h">▍ 工具</p>
+          <div class="w-row">
+            <span class="w-btn slate">打开结果目录</span>
+            <span class="w-btn amber">环境自检</span>
+            <span class="w-btn amber">安装依赖 openpyxl</span>
+            <span class="w-btn red">停止当前任务</span>
+          </div>
+        </div>
+        <div class="w-logbox">
+          <p class="sec-h">运行输出</p>
+          <div class="w-log"><span class="dim">======== 14:15:31 整理 ========</span>
+[读取] 24 人, 年月=2026年7月
+[分流] SHEET1=14 SHEET2=20 SHEET3=6
+[输出] 7月考勤整理结果_校验.xlsx
+<span class="dim">--- 结束 exit=0 ---</span>
+<span class="dim">[log] saved: logs\gui-20260818-141531-整理.log</span>
+<span class="pin" style="margin-right:6px">3</span><span class="ok">↑ 看这里:exit=0 就是成功</span></div>
+        </div>
+      </div>
+      <div class="w-status">就绪 · 选报表后点「整理」</div>
+      <div class="w-foot">E:\project\清泉出纳  |  python: python.exe</div>
+    </div>
+
+    <ul class="pins">
+      <li><span class="pin">1</span>下拉框:选要整理的考勤报表文件。</li>
+      <li><span class="pin">2</span>二选一点:<span class="btnref blue">整理</span> 只出结果;<span class="btnref cyan">整理并比对</span> 顺手核对旧结果。</li>
+      <li><span class="pin">3</span>运行输出:看 <code>exit=0</code> 判断成功,出错也在这里看报错行。</li>
+      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#16A34A;color:#1A222C;font-family:Consolas,Menlo,monospace;font-size:10px;font-weight:700;margin-right:8px;vertical-align:1px">★</span>整理完确认无误,点 <span class="btnref green">上传到飞书</span> 把当月数据传到飞书(自动认月份、建月表)。</li>
+    </ul>
+  </section>
+
+  <!-- 三张表 -->
+  <section>
+    <h2><span class="n">结果</span>生成的 xlsx 里有三张表</h2>
+    <p>结果文件 <code>{月}月考勤整理结果_校验.xlsx</code> 打开后有三个 sheet,分别装不同的人:</p>
+    <div class="sheets">
+      <div class="row head">
+        <div>Sheet 名</div><div>装谁</div><div>填到什么程度</div>
+      </div>
+      <div class="row">
+        <div class="name">考勤整理结果</div>
+        <div class="who">在职 且(有请假或加班 或 当月入职)的人(主表,直接拿去用)</div>
+        <div class="gap"><span class="auto">全自动</span> · 净事假/净加班/实际出勤/备注都算好;当月入职新人备注会标入职日</div>
+      </div>
+      <div class="row">
+        <div class="name">打卡记录异常说明</div>
+        <div class="who">有打卡异常的人(迟到/缺卡/旷工)</div>
+        <div class="gap"><span class="auto">指标自动</span> · <span class="hand">异常类型/详情/备注 留空标黄</span> 等人工补</div>
+      </div>
+      <div class="row">
+        <div class="name">其他员工(无请假加班)</div>
+        <div class="who">没请假加班、但有异常 或 离职的人(当月入职在职已并入主表)</div>
+        <div class="gap"><span class="auto">全自动</span> · 备注会写"旷工X天、缺卡Y次"等</div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:18px">
+      <span class="t">计算口径(整理结果表)</span>
+      <p>净事假/调休 = 假期 − 加班(不够抵为 0);净加班 = 加班 − 假期(不够抵为 0);7.5 小时 = 1 天;实际出勤 = 应出勤 − 净事假/调休 ÷ 7.5 − 年假 − 病假 − 婚假 − 育儿假(保留小数,不四舍五入);迟到次数直接抄报表。</p>
+      <p><strong>当月入职的新人</strong>也进主表,应出勤天数直接用钉钉报表给的值(钉钉已按入职日起算,如 7/27 入职给 5 天),实际出勤就是入职后那几天的正常出勤,脚本不另外重算。</p>
+    </div>
+  </section>
+
+  <!-- 上传到飞书 -->
+  <section>
+    <h2><span class="n">上传</span>把当月考勤传到飞书</h2>
+    <p>整理完、确认结果没问题后,点 <span class="btnref green">上传到飞书</span>,把当月的<strong>原始报表 + 整理结果</strong>一起传到飞书多维表格,给后面的人查和留档。</p>
+
+    <h3>一次上传会建/复用 5 张月表</h3>
+    <div class="sheets">
+      <div class="row head">
+        <div>飞书表名</div><div>装什么</div><div>来源</div>
+      </div>
+      <div class="row">
+        <div class="name">{月}考勤报表</div>
+        <div class="who">当月每人 1 行汇总(57 列)</div>
+        <div class="gap">钉钉原始报表</div>
+      </div>
+      <div class="row">
+        <div class="name">{月}打卡时间明细</div>
+        <div class="who">每人 × 每日 1 行打卡</div>
+        <div class="gap">钉钉原始报表</div>
+      </div>
+      <div class="row">
+        <div class="name">{月}考勤结果表</div>
+        <div class="who">在职 且(有请假加班 或 当月入职)的人(17 列,含人员列/月份/是否确认)</div>
+        <div class="gap">整理结果 Sheet1</div>
+      </div>
+      <div class="row">
+        <div class="name">{月}打卡异常说明</div>
+        <div class="who">有打卡异常的人(6 列)</div>
+        <div class="gap">整理结果 Sheet2</div>
+      </div>
+      <div class="row">
+        <div class="name">{月}其他员工</div>
+        <div class="who">无请假加班但有异常 或 离职的人(7 列;当月入职在职已并入结果表)</div>
+        <div class="gap">整理结果 Sheet3</div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:18px">
+      <span class="t">月份是脚本自己认的</span>
+      <p>脚本从报表文件名里的 <code>20260701_20260731</code> 或「7月」认出年月,自动给表加「{月}」前缀。7 月的报表就建「7月考勤报表」一套,8 月的就建「8月」一套,互不干扰。每月新建,历史月表永远不动。</p>
+    </div>
+
+    <div class="note amber">
+      <span class="t">上传前提:先整理出结果</span>
+      <p>点 <span class="btnref green">上传到飞书</span> 前,目录里必须有当月的 <code>*考勤整理结果_校验.xlsx</code>(就是上一节「整理」生成的那个)。没有的话会弹「未找到整理结果」,先点 <span class="btnref blue">整理</span> 再上传。</p>
+    </div>
+
+    <div class="note cyan">
+      <span class="t">同月可重复点,不会堆数据</span>
+      <p>同一个月重复上传,脚本认出表已存在就复用,先把该月表里的旧数据清空,再写当月最新数据。所以改了数据重传不会重复,也不会把旧月表弄乱。</p>
+    </div>
+
+    <div class="note amber">
+      <span class="t">上传后:把两张原始表拖进月份分组(手动,1 分钟)</span>
+      <p>飞书多维表格左侧可以把表收纳进「分组」(像文件夹)。脚本只负责建表和灌数据,<strong>归组要手动做一下</strong>:上传完成后,在飞书左侧新建一个分组(名字如「8月」),把当月的两张原始数据表——<code>{月}考勤报表</code> 和 <code>{月}打卡时间明细</code>——拖进这个分组。结果表/异常说明/其他员工留在外面即可。这样几个月下来,左侧按月份分组清清爽爽。</p>
+    </div>
+  </section>
+
+  <!-- 工具区按钮 -->
+  <section>
+    <h2><span class="n">工具</span>窗口右上的四个按钮</h2>
+    <ul>
+      <li><span class="btnref slate">打开结果目录</span> —— 在资源管理器里打开 <code>E:\project\清泉出纳\</code>,找结果文件和日志都从这儿进。</li>
+      <li><span class="btnref amber">环境自检</span> —— 打印本机 Python 和 openpyxl 版本,确认环境能不能跑。第一次用或换电脑后先点一下。</li>
+      <li><span class="btnref amber">安装依赖 openpyxl</span> —— 提示缺 openpyxl 时点这个,自动 <code>pip install openpyxl</code>。</li>
+      <li><span class="btnref red">停止当前任务</span> —— 整理卡住或想中断时点,杀掉正在跑的进程。</li>
+    </ul>
+  </section>
+
+  <!-- 常见问题 -->
+  <section>
+    <h2><span class="n">排障</span>常见问题</h2>
+
+    <div class="qa">
+      <p class="q">双击 bat 闪一下就没了,或弹窗说 <code>Python not found</code>。</p>
+      <p class="a">电脑没装 Python 3,或装的时候没勾「Add python.exe to PATH」。去 python.org 装 Python 3,安装界面务必勾上那个 PATH 选项,装完重新双击 bat。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">下拉框是空的,「考勤报表」选不到东西。</p>
+      <p class="a">报表文件没放对位置,或文件名不含「考勤报表」。把钉钉导出的报表放进 <code>E:\project\清泉出纳\</code>,确认文件名带「考勤报表」四字,再点 <span class="btnref slate">刷新</span>。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">运行输出里报 <code>No module named 'openpyxl'</code>。</p>
+      <p class="a">缺处理 Excel 的依赖。点 <span class="btnref amber">安装依赖 openpyxl</span>,装完再点整理。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">弹窗提示「任务失败 exit=非0」。</p>
+      <p class="a">看运行输出面板最后几行的报错。完整日志已存到 <code>logs\</code> 文件夹,点 <span class="btnref slate">打开结果目录</span> → 进 <code>logs</code> → 打开最新的 <code>gui-*.log</code> 把报错行发给我。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">整理完没弹「打开结果文件?」的窗。</p>
+      <p class="a">说明结果文件没生成成功,运行输出里通常已经有报错行。按上一条找日志。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">「整理并比对」和直接「整理」出的结果一样吗?</p>
+      <p class="a">出的结果文件完全一样。比对只是额外把这次生成的「考勤整理结果」sheet 跟目录里现有的 <code>考勤整理结果.xlsx</code>(不含 _校验 的那个)逐列核对,在运行输出里打印差异;没差异会显示 <code>✅ SHEET1 与现有结果表逐列一致</code>。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">点「上传到飞书」提示「未找到整理结果」。</p>
+      <p class="a">目录里没有当月的 <code>*考勤整理结果_校验.xlsx</code>。先在下拉框选好当月报表,点 <span class="btnref blue">整理</span> 生成结果文件,再点 <span class="btnref green">上传到飞书</span>。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">上传时运行输出报错,飞书里没建表。</p>
+      <p class="a">看运行输出最后几行的报错行。常见是网络不通或飞书凭据过期。完整日志在 <code>logs</code> 文件夹(点 <span class="btnref slate">打开结果目录</span> → 进 <code>logs</code> → 打开最新 <code>gui-*-上传到飞书.log</code>)。把报错行发给我。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">同一个月重复上传会怎样?</p>
+      <p class="a">脚本认出该月表已存在就复用,先清空旧数据再写当月最新数据,不会重复堆,也不会动历史月表。所以改完数据放心重传。</p>
+    </div>
+
+    <div class="qa">
+      <p class="q">上传后表都堆在左侧,怎么按月份归类?</p>
+      <p class="a">飞书多维表格左侧能建「分组」。每月上传完,手动新建一个分组(如「8月」),把当月的 <code>{月}考勤报表</code> 和 <code>{月}打卡时间明细</code> 两张原始表拖进去就行。归组是飞书界面手动的,脚本不管这部分。</p>
+    </div>
+  </section>
+
+  <footer class="page">
+    <p>工具目录:<span class="path">E:\project\清泉出纳\</span></p>
+    <p>启动器:<span class="path">考勤整理启动器.bat</span> &nbsp;·&nbsp; 整理脚本:<span class="path">kaoqin.py</span> &nbsp;·&nbsp; 界面:<span class="path">gui.py</span></p>
+    <p>上传脚本:<span class="path">清泉跨境系统/backend/scripts/feishu-attendance-monthly.py</span></p>
+    <p>运行日志:<span class="path">E:\project\清泉出纳\logs\gui-年月日-时分秒-任务名.log</span></p>
+    <p style="margin-top:10px;color:#94A3B8">本说明给非技术同事使用,只讲操作;脚本参数与机制见 <code>kaoqin.py</code> 文件头注释。</p>
+  </footer>
+
+</div>
+</body>
+</html>
