@@ -1,14 +1,14 @@
 """每月考勤数据上传飞书 · 可重复、换月不改代码。
 
 把当月的:
-  - 钉钉考勤原始报表(*月考勤报表_起_止.xlsx) → 「{月}考勤报表」(57列) + 「{月}打卡时间明细」(10列)
+  - 钉钉考勤原始报表(*月考勤报表_起_止.xlsx) → 共用表「考勤报表」(57列) + 「打卡时间明细」(10列)
   - kaoqin.py 整理结果(*月考勤整理结果_校验.xlsx)的 3 个 sheet →
-      Sheet1 考勤整理结果   → 「{月}考勤结果表」(14列)
+      Sheet1 考勤整理结果   → 共用表「考勤结果总表」(报表全员;人员映射权威源,每次清空重写)
       Sheet2 打卡记录异常说明 → 「{月}打卡异常说明」(6列)
       Sheet3 其他员工        → 「{月}其他员工」(7列)
 
-每月在 base Xp7UbFxhRavG7OsxAP3cnAfXnJh 里新建 5 张「{月}」前缀表(已存在则复用),
-清空该表后灌入当月数据。历史月表保留不动。
+共用表「考勤报表 / 打卡时间明细 / 考勤结果总表」每次清空后灌入此次数据。
+当月 2 张表按「{月}」前缀建/复用,历史月表保留不动。不建「{月}考勤结果表」。
 
 零依赖:仅用 stdlib(urllib + openpyxl)。凭据直接读 .env,不耦合 backend。
 打卡时间用北京时间 +08:00,飞书日期字段存绝对毫秒按用户时区回显。
@@ -43,7 +43,7 @@ BATCH = 500
 # (注意:复选框真实 type=7,3 是旧/兼容编码,以总表实测 7 为准)
 T_TEXT, T_NUM, T_CHECK, T_DATE, T_USER = 1, 2, 7, 5, 11
 
-# ---------------- 5 张表字段定义(建表用) ----------------
+# ---------------- 表字段定义(建表用) ----------------
 # 57 列考勤报表:11 文本 + 1 日期(入职) + 45 数字(离职日期是文本型!)
 SUMMARY_FIELDS = [
     ("姓名", T_TEXT), ("工号", T_TEXT), ("部门", T_TEXT), ("组织架构", T_TEXT),
@@ -75,9 +75,10 @@ DETAIL_FIELDS = [
     ("是否缺卡（早）", T_CHECK), ("是否缺卡（晚）", T_CHECK),
     ("工时", T_TEXT), ("迟到情况", T_TEXT), ("加班情况", T_TEXT),
 ]
-# 17 列考勤结果表(对齐 kaoqin.py Sheet1 + 飞书手加的 3 列):
+# 18 列考勤结果表(对齐 kaoqin.py Sheet1 + 飞书手加的 3 列):
 #   首列 姓名(文本,索引) + 姓名(人员)(type=11,飞书可@人,值来自总表映射)
-#   + 月份(文本,当月值如 "2026-7") + 12 数字 + 备注(文本) + 是否确认(复选框 type=7,留空手勾)
+#   + 月份(文本,当月值如 "2026-7") + 12 数字 + 纳入汇总(文本 是/否)
+#   + 备注(文本) + 是否确认(复选框 type=7,留空手勾)
 # 注:飞书人员类型不能当首列,故姓名仍文本当索引,人员列紧跟其后。
 RESULT_FIELDS = [
     ("姓名", T_TEXT),
@@ -87,7 +88,8 @@ RESULT_FIELDS = [
     ("调休假(小时)", T_NUM), ("加班总时长(小时)", T_NUM), ("年假(天)", T_NUM),
     ("病假(天)", T_NUM), ("婚假(天)", T_NUM), ("育儿假(天)", T_NUM),
     ("净事假/调休(小时)", T_NUM), ("净加班(小时)", T_NUM),
-    ("实际出勤天数", T_NUM), ("迟到次数", T_NUM), ("备注", T_TEXT),
+    ("实际出勤天数", T_NUM), ("迟到次数", T_NUM),
+    ("纳入汇总", T_TEXT), ("备注", T_TEXT),
     ("是否确认", T_CHECK),
 ]
 # 6 列打卡异常说明(对齐 Sheet2):全文本(缺卡次数(上/下)是 "5/5" 格式)
@@ -102,20 +104,25 @@ OTHER_FIELDS = [
     ("备注", T_TEXT),
 ]
 
-# spec_key → (字段定义, 源数据来源)
-TABLE_SPECS = {
+# 共用表:无月份前缀,每次上传清空后灌入此次数据
+SHARED_SPECS = {
     "考勤报表":      SUMMARY_FIELDS,
     "打卡时间明细":  DETAIL_FIELDS,
-    "考勤结果表":    RESULT_FIELDS,
+}
+# 当月表:「{月}」前缀,建/复用后清空写入;历史月表不动。不建「{月}考勤结果表」。
+MONTHLY_SPECS = {
     "打卡异常说明":  ANOMALY_FIELDS,
     "其他员工":      OTHER_FIELDS,
 }
 
 # 姓名→open_id 映射的权威源:用户手动维护「姓名(人员)」列的总表。
-# 每月新月表的人员列值从这里读。改名(如 X月考勤结果表)不影响,按此常量名匹配。
+# Sheet1(报表全员)只写入这张总表(每次清空重写)。人员列值从这里读。
 PERSON_MAP_TABLE = "考勤结果总表"
 PERSON_FIELD = "姓名 (人员 )"
 PERSON_NAME_FIELD = "姓名"
+SUMMARY_VIEW_NAME = "汇总"
+SUMMARY_FLAG_FIELD = "纳入汇总"
+SUMMARY_FLAG_YES = "是"
 # 总表累积:写入时跳过人工字段(「是否确认」由用户在飞书手勾,脚本绝不覆盖)
 MASTER_IGNORE = {"是否确认"}
 
@@ -221,8 +228,8 @@ def list_tables(token: str) -> dict[str, str]:
 def load_person_map(token: str) -> dict[str, str]:
     """从「考勤结果总表」读 姓名→open_id 映射(用户在飞书手填的人员列)。
 
-    每月新建「X月考勤结果表」时,人员列值查这份字典写入。总表不存在或无人员列
-    则返回空字典(当月人员列全留空,日志提示去飞书手补)。
+    回写总表人员列时查这份字典。总表不存在或无人员列则返回空字典
+    (人员列全留空,日志提示去飞书手补)。
     """
     tables = list_tables(token)
     tid = tables.get(PERSON_MAP_TABLE)
@@ -271,16 +278,112 @@ def create_table(token: str, name: str, fields: list[tuple[str, int]]) -> str:
     return d["data"]["table_id"]
 
 
-def ensure_table(token: str, month_prefix: str, spec_key: str,
-                 fields: list[tuple[str, int]], existing: dict[str, str]) -> str:
-    """按「{月}{spec}」名找表;没有就建。返回 table_id。"""
-    tname = f"{month_prefix}{spec_key}"
+def ensure_table(token: str, tname: str, fields: list[tuple[str, int]],
+                 existing: dict[str, str]) -> str:
+    """按表名找表;没有就建。返回 table_id。"""
     if tname in existing:
         print(f"  表「{tname}」已存在,复用 {existing[tname]}")
         return existing[tname]
     tid = create_table(token, tname, fields)
     print(f"  新建表「{tname}」{len(fields)}字段 → {tid}")
     return tid
+
+
+def list_fields(token: str, table_id: str) -> dict[str, dict]:
+    """返回 {field_name: {field_id, type}}。"""
+    out: dict[str, dict] = {}
+    page = ""
+    while True:
+        path = f"/bitable/v1/apps/{APP_TOKEN}/tables/{table_id}/fields?page_size=100"
+        if page:
+            path += f"&page_token={page}"
+        d = api("GET", path, token=token)
+        if d.get("code") != 0:
+            raise RuntimeError(f"list_fields {table_id}: {d}")
+        data = d.get("data") or {}
+        for it in data.get("items") or []:
+            out[it["field_name"]] = {"field_id": it["field_id"], "type": it["type"]}
+        if not data.get("has_more"):
+            break
+        page = data.get("page_token", "")
+    return out
+
+
+def ensure_field(token: str, table_id: str, name: str, ftype: int) -> str:
+    """表上没有该字段就建。返回 field_id。"""
+    fields = list_fields(token, table_id)
+    if name in fields:
+        return fields[name]["field_id"]
+    d = api("POST", f"/bitable/v1/apps/{APP_TOKEN}/tables/{table_id}/fields",
+            {"field_name": name, "type": ftype}, token)
+    if d.get("code") != 0:
+        raise RuntimeError(f"建字段「{name}」失败: {d}")
+    fid = (d.get("data") or {}).get("field", {}).get("field_id") or (
+        d.get("data") or {}).get("field_id")
+    if not fid:
+        raise RuntimeError(f"建字段「{name}」无 field_id: {d}")
+    print(f"  总表新建字段「{name}」→ {fid}")
+    return fid
+
+
+def list_views(token: str, table_id: str) -> dict[str, str]:
+    """返回 {view_name: view_id}。"""
+    out: dict[str, str] = {}
+    page = ""
+    while True:
+        path = f"/bitable/v1/apps/{APP_TOKEN}/tables/{table_id}/views?page_size=100"
+        if page:
+            path += f"&page_token={page}"
+        d = api("GET", path, token=token)
+        if d.get("code") != 0:
+            raise RuntimeError(f"list_views {table_id}: {d}")
+        data = d.get("data") or {}
+        for it in data.get("items") or []:
+            out[it["view_name"]] = it["view_id"]
+        if not data.get("has_more"):
+            break
+        page = data.get("page_token", "")
+    return out
+
+
+def ensure_summary_view(token: str, table_id: str) -> None:
+    """总表「汇总」视图筛 纳入汇总=是(旧主表口径)。字段/视图没有就建。"""
+    fid = ensure_field(token, table_id, SUMMARY_FLAG_FIELD, T_TEXT)
+    views = list_views(token, table_id)
+    vid = views.get(SUMMARY_VIEW_NAME)
+    if not vid:
+        d = api("POST", f"/bitable/v1/apps/{APP_TOKEN}/tables/{table_id}/views",
+                {"view_name": SUMMARY_VIEW_NAME, "view_type": "grid"}, token)
+        if d.get("code") != 0:
+            raise RuntimeError(f"建视图「{SUMMARY_VIEW_NAME}」失败: {d}")
+        data = d.get("data") or {}
+        view = data.get("view") or data
+        vid = view.get("view_id")
+        if not vid:
+            raise RuntimeError(f"建视图「{SUMMARY_VIEW_NAME}」无 view_id: {d}")
+        print(f"  总表新建视图「{SUMMARY_VIEW_NAME}」→ {vid}")
+    # PATCH 是整段替换 property, 先读现有 hidden_fields 以免冲掉手设的隐藏列
+    cur = api("GET",
+              f"/bitable/v1/apps/{APP_TOKEN}/tables/{table_id}/views/{vid}",
+              token=token)
+    hidden = ((cur.get("data") or {}).get("view") or {}).get("property", {}).get(
+        "hidden_fields") or []
+    d = api("PATCH",
+            f"/bitable/v1/apps/{APP_TOKEN}/tables/{table_id}/views/{vid}",
+            {"property": {
+                "hidden_fields": hidden,
+                "filter_info": {
+                    "conjunction": "and",
+                    "conditions": [{
+                        "field_id": fid,
+                        "operator": "is",
+                        "value": json.dumps([SUMMARY_FLAG_YES], ensure_ascii=False),
+                    }],
+                },
+            }}, token)
+    if d.get("code") != 0:
+        raise RuntimeError(f"更新视图「{SUMMARY_VIEW_NAME}」筛选失败: {d}")
+    print(f"  视图「{SUMMARY_VIEW_NAME}」筛选 {SUMMARY_FLAG_FIELD}={SUMMARY_FLAG_YES}")
 
 
 def list_record_ids(token: str, table_id: str) -> list[str]:
@@ -575,14 +678,14 @@ def _read_sheet_rows(ws, header_row: int = 3) -> list[dict]:
 
 def _conv_result(row: dict, person_map: dict[str, str] | None = None,
                  missing: set[str] | None = None) -> dict:
-    """Sheet1 考勤整理结果 → 飞书16列。
+    """Sheet1 考勤整理结果 → 飞书列。
 
-    姓名/备注文本;姓名(人员)按 person_map 姓名→open_id 写 [{id:...}],不命中留空
-    并把姓名记入 missing;是否确认复选不写(留空手勾);余数字。
+    姓名/纳入汇总/备注文本;姓名(人员)按 person_map 姓名→open_id 写 [{id:...}],
+    不命中留空并把姓名记入 missing;是否确认复选不写(留空手勾);余数字。
     """
     out: dict = {}
     for k, v in row.items():
-        if k in ("姓名", "备注"):
+        if k in ("姓名", "备注", SUMMARY_FLAG_FIELD):
             t = _text(v)
             if t:
                 out[k] = t
@@ -629,8 +732,8 @@ def _conv_other(row: dict) -> dict:
 def read_result(path: Path, person_map: dict[str, str] | None = None):
     """返回 (result_rows, anomaly_rows, other_rows, missing_names)。
 
-    result_rows 已按 person_map 填好姓名(人员)列;missing_names 是当月结果表
-    里姓名不在总表映射中的人(需去飞书手补人员值)。
+    result_rows 已按 person_map 填好姓名(人员)列;missing_names 是整理结果里
+    姓名不在总表映射中的人(需去飞书手补人员值)。
     """
     wb = openpyxl.load_workbook(path, data_only=True)
     missing: set[str] = set()
@@ -656,10 +759,17 @@ def main():
         sys.exit(f"[错误] 报表不存在: {report_path}")
     if not result_path.exists():
         sys.exit(f"[错误] 整理结果不存在: {result_path}")
+    if report_path.name.startswith("~$") or result_path.name.startswith("~$"):
+        sys.exit(
+            f"[错误] 收到的是 Excel 临时锁文件（~$ 开头），不是正式表格。\n"
+            f"  报表: {report_path.name}\n"
+            f"  结果: {result_path.name}\n"
+            f"请先关闭 Excel/WPS 里打开的该文件，再上传。"
+        )
 
     year, month = detect_year_month(report_path.name)
     month_prefix = f"{month}月"
-    print(f"[识别] {year}年{month}月 → 表前缀「{month_prefix}」")
+    print(f"[识别] {year}年{month}月")
 
     summary, detail = read_report(report_path, year, month)
 
@@ -667,7 +777,13 @@ def main():
     token = get_token()
     person_map = load_person_map(token)
 
-    result, anomaly, other, missing = read_result(result_path, person_map)
+    try:
+        result, anomaly, other, missing = read_result(result_path, person_map)
+    except PermissionError:
+        sys.exit(
+            f"[错误] 无法读取整理结果 {result_path.name}：文件正被 Excel/WPS 打开。\n"
+            f"请先关闭该文件，再点「上传到飞书」。"
+        )
 
     # 月份列:考勤结果表每条记录带当月值,格式对齐总表(如 "2026-7",月不补零)
     month_value = f"{year}-{month}"
@@ -676,9 +792,10 @@ def main():
 
     print(f"[解析] 汇总 {len(summary)} 行 | 打卡明细 {len(detail)} 行 | "
           f"结果 {len(result)} | 异常 {len(anomaly)} | 其他 {len(other)}")
-    print(f"[月份] 考勤结果表每条写入「月份」= {month_value!r}")
+    print(f"[月份] 考勤结果总表每条写入「月份」= {month_value!r}")
     hit = len(result) - len(missing)
-    print(f"[人员] 考勤结果表 {len(result)} 人,人员映射命中 {hit}, "
+    n_hz = sum(1 for r in result if r.get(SUMMARY_FLAG_FIELD) == SUMMARY_FLAG_YES)
+    print(f"[人员] 考勤结果总表 {len(result)} 人,纳入汇总 {n_hz} 人,人员映射命中 {hit}, "
           f"未命中 {len(missing)}(将留空待手补)")
     if missing:
         print(f"[人员] 未命中姓名: {'、'.join(missing)}")
@@ -689,31 +806,39 @@ def main():
         print(f"  结果[0]: {result[0] if result else '(空)'}")
         print(f"  异常[0]: {anomaly[0] if anomaly else '(空)'}")
         print(f"  其他[0]: {other[0] if other else '(空)'}")
-        print(f"\n将建/复用 5 张表:")
-        for key in TABLE_SPECS:
-            print(f"  「{month_prefix}{key}」{len(TABLE_SPECS[key])}字段")
+        print("\n将写入:")
+        print("  共用表(每次清空重写):")
+        for key, fields in SHARED_SPECS.items():
+            print(f"    「{key}」{len(fields)}字段")
+        print(f"    「{PERSON_MAP_TABLE}」(覆盖当月全员;「{SUMMARY_VIEW_NAME}」视图筛"
+              f"{SUMMARY_FLAG_FIELD}={SUMMARY_FLAG_YES})")
+        print("  当月表(建/复用后清空写入,历史月不动):")
+        for key, fields in MONTHLY_SPECS.items():
+            print(f"    「{month_prefix}{key}」{len(fields)}字段")
         print("\n确认无误后加 --apply 真正执行。")
         return
 
     existing = list_tables(token)
     print(f"\n[建表] base 现有 {len(existing)} 张表")
     tids: dict[str, str] = {}
-    for key, fields in TABLE_SPECS.items():
-        tids[key] = ensure_table(token, month_prefix, key, fields, existing)
+    for key, fields in SHARED_SPECS.items():
+        tids[key] = ensure_table(token, key, fields, existing)
+    for key, fields in MONTHLY_SPECS.items():
+        tids[key] = ensure_table(token, f"{month_prefix}{key}", fields, existing)
 
-    # 写入(月表语义=当月最新,先清空再写)
+    # 写入:共用表 + 当月表都是先清空再写。Sheet1(报表全员)进「考勤结果总表」。
     plan = [
-        ("考勤报表", summary, "汇总"),
-        ("打卡时间明细", detail, "明细"),
-        ("考勤结果表", result, "结果"),
-        ("打卡异常说明", anomaly, "异常"),
-        ("其他员工", other, "其他"),
+        ("考勤报表", summary, "汇总", True),
+        ("打卡时间明细", detail, "明细", True),
+        ("打卡异常说明", anomaly, "异常", False),
+        ("其他员工", other, "其他", False),
     ]
     print("\n[写入]")
     counts = {}
-    for key, records, label in plan:
+    for key, records, label, shared in plan:
         tid = tids[key]
-        print(f"  「{month_prefix}{key}」({label}) {len(records)} 条")
+        tname = key if shared else f"{month_prefix}{key}"
+        print(f"  「{tname}」({label}) {len(records)} 条")
         ids = list_record_ids(token, tid)
         if ids:
             print(f"    清空旧 record {len(ids)} 条")
@@ -724,22 +849,25 @@ def main():
             counts[key] = 0
             print(f"    (无数据,跳过写入)")
 
-    print(f"\n✅ 完成「{month_prefix}」:")
-    for key, label in [("考勤报表","汇总"),("打卡时间明细","明细"),("考勤结果表","结果"),
-                       ("打卡异常说明","异常"),("其他员工","其他")]:
-        print(f"   {label}: {counts.get(key,0)} 条")
+    print(f"\n✅ 完成 {year}年{month}月:")
+    for key, shared in [("考勤报表", True), ("打卡时间明细", True),
+                        ("打卡异常说明", False), ("其他员工", False)]:
+        tname = key if shared else f"{month_prefix}{key}"
+        print(f"   {tname}: {counts.get(key, 0)} 条")
 
     # 覆盖式写入考勤结果总表(清空旧数据 → 全量写入当月)
     master_tid = existing.get(PERSON_MAP_TABLE)
     if master_tid and result:
         print(f"\n[总表] 覆盖写入「{PERSON_MAP_TABLE}」({month_value})")
+        # 先建「纳入汇总」并设「汇总」视图筛选,再写记录(否则 FieldNameNotFound)
+        ensure_summary_view(token, master_tid)
         cr = sync_master(token, master_tid, result, month_value)
         print(f"  写入 {cr} 条")
     elif not master_tid:
         print(f"\n[总表] 未找到「{PERSON_MAP_TABLE}」,跳过。请在飞书手建一张同名字段表。")
 
     if missing:
-        print(f"\n⚠️ 「{month_prefix}考勤结果表」以下 {len(missing)} 人的人员列留空"
+        print(f"\n⚠️ 「{PERSON_MAP_TABLE}」以下 {len(missing)} 人的人员列留空"
               f"(总表无其姓名→人员映射),请去飞书手补:")
         print(f"   {'、'.join(missing)}")
 

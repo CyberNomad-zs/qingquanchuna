@@ -58,6 +58,15 @@ def _find_python() -> str:
     return PY
 
 
+def _is_excel_lock(path: Path) -> bool:
+    """Excel/WPS 打开 xlsx 时会在同目录生成 ~$ 开头的锁文件，不能当正式表格用。"""
+    return path.name.startswith("~$")
+
+
+def _glob_xlsx(pattern: str) -> list[Path]:
+    return [p for p in ROOT.glob(pattern) if not _is_excel_lock(p)]
+
+
 class App(Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -283,7 +292,7 @@ class App(Tk):
 
     # ---------------- 文件扫描 ----------------
     def _refresh_reports(self) -> None:
-        files = sorted(ROOT.glob("*考勤报表*.xlsx"))
+        files = sorted(_glob_xlsx("*考勤报表*.xlsx"))
         names = [f.name for f in files]
         self.cmb_report["values"] = names
         if names:
@@ -295,15 +304,35 @@ class App(Tk):
 
     def _find_existing_result(self) -> Optional[Path]:
         """现有结果表 = *考勤整理结果*.xlsx 排除脚本自己生成的 _校验，取最新。"""
-        cands = [p for p in ROOT.glob("*考勤整理结果*.xlsx") if not p.stem.endswith("_校验")]
+        cands = [p for p in _glob_xlsx("*考勤整理结果*.xlsx") if not p.stem.endswith("_校验")]
         if not cands:
             return None
         cands.sort(key=lambda p: p.stat().st_mtime, reverse=True)
         return cands[0]
 
-    def _find_latest_generated(self) -> Optional[Path]:
-        cands = sorted(ROOT.glob("*考勤整理结果_校验*.xlsx"), key=lambda p: p.stat().st_mtime, reverse=True)
-        return cands[0] if cands else None
+    def _result_month(self, name: str) -> Optional[int]:
+        m = re.match(r"^(\d{1,2})月考勤整理结果_校验", name)
+        if not m:
+            return None
+        mo = int(m.group(1))
+        return mo if 1 <= mo <= 12 else None
+
+    def _find_latest_generated(self, report_name: str | None = None) -> Optional[Path]:
+        """找整理结果。优先匹配所选报表的月份，避免把 Excel 锁文件或其他月的表当最新。"""
+        cands = _glob_xlsx("*考勤整理结果_校验*.xlsx")
+        if not cands:
+            return None
+        if report_name:
+            try:
+                _, month = self._detect_year_month(report_name)
+            except RuntimeError:
+                month = None
+            if month is not None:
+                month_cands = [p for p in cands if self._result_month(p.name) == month]
+                if month_cands:
+                    cands = month_cands
+        cands.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return cands[0]
 
     # ---------------- 运行子进程 ----------------
     def _run(self, title: str, cmd: list[str], confirm: str | None = None,
@@ -415,7 +444,7 @@ class App(Tk):
             if code != 0:
                 messagebox.showwarning("失败", f"{title} 失败 (exit={code})，详见日志。")
                 return
-            result = self._find_latest_generated()
+            result = self._find_latest_generated(fn)
             if not result:
                 self._q.put("[提示] 未找到生成的结果文件")
                 return
@@ -444,7 +473,12 @@ class App(Tk):
         raise RuntimeError(f"无法从文件名识别月份: {text}")
 
     def run_upload_feishu(self) -> None:
-        """上传当月考勤原始报表 + 整理结果到飞书(建/复用 5 张月表,清空后写入)。"""
+        """上传当月考勤原始报表 + 整理结果到飞书。
+
+        共用表「考勤报表 / 打卡时间明细 / 考勤结果总表」每次清空重写;
+        当月 2 张表「{月}打卡异常说明 / {月}其他员工」按前缀建/复用。
+        不建「{月}考勤结果表」。
+        """
         if not UPLOAD_SCRIPT.exists():
             messagebox.showerror("错误", f"上传脚本不存在:\n{UPLOAD_SCRIPT}")
             return
@@ -456,7 +490,7 @@ class App(Tk):
         if not report.exists():
             messagebox.showerror("错误", f"报表文件不存在:\n{report}")
             return
-        result = self._find_latest_generated()
+        result = self._find_latest_generated(fn)
         if not result:
             messagebox.showwarning(
                 "未找到整理结果",
@@ -473,9 +507,10 @@ class App(Tk):
             f"将 {year}年{month}月 考勤数据上传到飞书?\n\n"
             f"  报表: {report.name}\n"
             f"  整理结果: {result.name}\n\n"
-            f"在飞书 base 里建/复用 5 张「{month_prefix}」前缀表\n"
-            f"（考勤报表 / 打卡时间明细 / 考勤结果表 / 打卡异常说明 / 其他员工）,\n"
-            f"清空后写入当月数据。历史月表不动。"
+            f"共用表每次清空后灌入此次数据:\n"
+            f"  考勤报表 / 打卡时间明细 / 考勤结果总表\n\n"
+            f"当月表建/复用「{month_prefix}」前缀,历史月不动:\n"
+            f"  {month_prefix}打卡异常说明 / {month_prefix}其他员工"
         )
         if not messagebox.askyesno("确认上传", confirm):
             return
@@ -493,7 +528,8 @@ class App(Tk):
             if messagebox.askyesno(
                 "完成",
                 f"已上传 {year}年{month}月 考勤数据到飞书。\n\n"
-                f"5 张「{month_prefix}」表已建/复用并写入当月数据。\n\n去飞书查看?",
+                f"共用表「考勤报表 / 打卡时间明细 / 考勤结果总表」已清空重写;\n"
+                f"当月「{month_prefix}打卡异常说明 / {month_prefix}其他员工」已写入。\n\n去飞书查看?",
             ):
                 try:
                     os.startfile("https://dn86p8pyqr.feishu.cn/base/Xp7UbFxhRavG7OsxAP3cnAfXnJh")  # type: ignore[attr-defined]

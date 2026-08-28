@@ -323,8 +323,12 @@
         <p><strong>等输出跑完,打开结果文件</strong>。看到 <code>--- 结束 exit=0 ---</code> 就是成功,会弹窗问「打开结果文件?」,点「是」直接打开。结果文件名形如 <code>7月考勤整理结果_校验.xlsx</code>,和启动器在同一个目录。</p>
       </li>
       <li>
-        <p><strong>整理无误后,点 <span class="btnref green">上传到飞书</span></strong>。把当月的考勤原始报表 + 整理结果一起传到飞书多维表格。脚本会自动从文件名认出是几月,在飞书里建/复用 5 张「{月}」前缀的表(考勤报表、打卡时间明细、考勤结果表、打卡异常说明、其他员工),清空后写入当月数据,历史月表不动。弹窗确认后底部跑进度,跑完问「去飞书查看?」。</p>
-        <p>每月只点一次就行;同月重复点会把该月表清空重写,不会重复堆数据。</p>
+        <p><strong>整理无误后,点 <span class="btnref green">上传到飞书</span></strong>。把当月的考勤原始报表 + 整理结果一起传到飞书多维表格。脚本从文件名认出是几月后:</p>
+        <ul>
+          <li>共用表「考勤报表 / 打卡时间明细 / 考勤结果总表」<strong>每次清空后灌入此次数据</strong>(只留当月最新);</li>
+          <li>当月 2 张表按「{月}」前缀建/复用(打卡异常说明、其他员工),历史月表不动。不建「{月}考勤结果表」。</li>
+        </ul>
+        <p>弹窗确认后底部跑进度,跑完问「去飞书查看?」。改了数据可以重传,共用表和当月那 2 张表都会按最新覆盖。</p>
       </li>
     </ol>
 
@@ -369,7 +373,7 @@
           <p class="sec-h">运行输出</p>
           <div class="w-log"><span class="dim">======== 14:15:31 整理 ========</span>
 [读取] 24 人, 年月=2026年7月
-[分流] SHEET1=14 SHEET2=20 SHEET3=6
+[分流] SHEET1=24 SHEET2=20 SHEET3=6
 [输出] 7月考勤整理结果_校验.xlsx
 <span class="dim">--- 结束 exit=0 ---</span>
 <span class="dim">[log] saved: logs\gui-20260818-141531-整理.log</span>
@@ -384,7 +388,7 @@
       <li><span class="pin">1</span>下拉框:选要整理的考勤报表文件。</li>
       <li><span class="pin">2</span>二选一点:<span class="btnref blue">整理</span> 只出结果;<span class="btnref cyan">整理并比对</span> 顺手核对旧结果。</li>
       <li><span class="pin">3</span>运行输出:看 <code>exit=0</code> 判断成功,出错也在这里看报错行。</li>
-      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#16A34A;color:#1A222C;font-family:Consolas,Menlo,monospace;font-size:10px;font-weight:700;margin-right:8px;vertical-align:1px">★</span>整理完确认无误,点 <span class="btnref green">上传到飞书</span> 把当月数据传到飞书(自动认月份、建月表)。</li>
+      <li><span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#16A34A;color:#1A222C;font-family:Consolas,Menlo,monospace;font-size:10px;font-weight:700;margin-right:8px;vertical-align:1px">★</span>整理完确认无误,点 <span class="btnref green">上传到飞书</span> 把当月数据传到飞书(共用表清空重写;异常说明/其他员工按月份建/复用)。</li>
     </ul>
   </section>
 
@@ -398,8 +402,8 @@
       </div>
       <div class="row">
         <div class="name">考勤整理结果</div>
-        <div class="who">在职 且(有请假或加班 或 当月入职)的人(主表,直接拿去用)</div>
-        <div class="gap"><span class="auto">全自动</span> · 净事假/净加班/实际出勤/备注都算好;当月入职新人备注会标入职日</div>
+        <div class="who">报表全员(主表,上传飞书「考勤结果总表」;含全勤/外包实习/离职)</div>
+        <div class="gap"><span class="auto">全自动</span> · 净事假/净加班/实际出勤/备注都算好;「纳入汇总」标是/否(飞书汇总视图按此筛);全勤写「全勤」,入职/离职会标日期</div>
       </div>
       <div class="row">
         <div class="name">打卡记录异常说明</div>
@@ -408,7 +412,7 @@
       </div>
       <div class="row">
         <div class="name">其他员工(无请假加班)</div>
-        <div class="who">没请假加班、但有异常 或 离职的人(当月入职在职已并入主表)</div>
+        <div class="who">没请假加班、但有异常 或 离职的人(筛选视图,这些人已在主表;当月入职在职只在主表)</div>
         <div class="gap"><span class="auto">全自动</span> · 备注会写"旷工X天、缺卡Y次"等</div>
       </div>
     </div>
@@ -416,7 +420,7 @@
     <div class="note" style="margin-top:18px">
       <span class="t">计算口径(整理结果表)</span>
       <p>净事假/调休 = 假期 − 加班(不够抵为 0);净加班 = 加班 − 假期(不够抵为 0);7.5 小时 = 1 天;实际出勤 = 应出勤 − 净事假/调休 ÷ 7.5 − 年假 − 病假 − 婚假 − 育儿假(保留小数,不四舍五入);迟到次数直接抄报表。</p>
-      <p><strong>当月入职的新人</strong>也进主表,应出勤天数直接用钉钉报表给的值(钉钉已按入职日起算,如 7/27 入职给 5 天),实际出勤就是入职后那几天的正常出勤,脚本不另外重算。</p>
+      <p><strong>报表全员都进主表</strong>(含全勤、外包/实习、离职)。应出勤天数直接用钉钉报表给的值(钉钉已按入职日起算,如 7/27 入职给 5 天),实际出勤就是入职后那几天的正常出勤,脚本不另外重算。全勤无请假加班的人备注写「全勤」;入职/离职会在备注标日期。</p>
     </div>
   </section>
 
@@ -425,24 +429,24 @@
     <h2><span class="n">上传</span>把当月考勤传到飞书</h2>
     <p>整理完、确认结果没问题后,点 <span class="btnref green">上传到飞书</span>,把当月的<strong>原始报表 + 整理结果</strong>一起传到飞书多维表格,给后面的人查和留档。</p>
 
-    <h3>一次上传会建/复用 5 张月表</h3>
+    <h3>一次上传写哪些表</h3>
     <div class="sheets">
       <div class="row head">
         <div>飞书表名</div><div>装什么</div><div>来源</div>
       </div>
       <div class="row">
-        <div class="name">{月}考勤报表</div>
-        <div class="who">当月每人 1 行汇总(57 列)</div>
+        <div class="name">考勤报表</div>
+        <div class="who">每人 1 行汇总(57 列)· 共用表,每次清空重写</div>
         <div class="gap">钉钉原始报表</div>
       </div>
       <div class="row">
-        <div class="name">{月}打卡时间明细</div>
-        <div class="who">每人 × 每日 1 行打卡</div>
+        <div class="name">打卡时间明细</div>
+        <div class="who">每人 × 每日 1 行打卡 · 共用表,每次清空重写</div>
         <div class="gap">钉钉原始报表</div>
       </div>
       <div class="row">
-        <div class="name">{月}考勤结果表</div>
-        <div class="who">在职 且(有请假加班 或 当月入职)的人(17 列,含人员列/月份/是否确认)</div>
+        <div class="name">考勤结果总表</div>
+        <div class="who">报表全员的整理结果 + 人员映射 · 共用表,每次清空重写。「汇总」视图仍按旧规则(在职且请假加班或当月入职)</div>
         <div class="gap">整理结果 Sheet1</div>
       </div>
       <div class="row">
@@ -452,14 +456,14 @@
       </div>
       <div class="row">
         <div class="name">{月}其他员工</div>
-        <div class="who">无请假加班但有异常 或 离职的人(7 列;当月入职在职已并入结果表)</div>
+        <div class="who">无请假加班但有异常 或 离职的人(7 列;筛选视图,这些人已在总表;当月入职在职只在总表)</div>
         <div class="gap">整理结果 Sheet3</div>
       </div>
     </div>
 
     <div class="note" style="margin-top:18px">
       <span class="t">月份是脚本自己认的</span>
-      <p>脚本从报表文件名里的 <code>20260701_20260731</code> 或「7月」认出年月,自动给表加「{月}」前缀。7 月的报表就建「7月考勤报表」一套,8 月的就建「8月」一套,互不干扰。每月新建,历史月表永远不动。</p>
+      <p>脚本从报表文件名里的 <code>20260701_20260731</code> 或「7月」认出年月。2 张当月表加「{月}」前缀(如「7月打卡异常说明」),历史月表永远不动。共用的「考勤报表 / 打卡时间明细 / 考勤结果总表」不加月份前缀,每次只留此次数据。整理结果 Sheet1 全员写入「考勤结果总表」;表上的「汇总」视图只显示纳入汇总=是的人(旧主表口径:在职且有请假加班或当月入职)。</p>
     </div>
 
     <div class="note amber">
@@ -468,13 +472,8 @@
     </div>
 
     <div class="note cyan">
-      <span class="t">同月可重复点,不会堆数据</span>
-      <p>同一个月重复上传,脚本认出表已存在就复用,先把该月表里的旧数据清空,再写当月最新数据。所以改了数据重传不会重复,也不会把旧月表弄乱。</p>
-    </div>
-
-    <div class="note amber">
-      <span class="t">上传后:把两张原始表拖进月份分组(手动,1 分钟)</span>
-      <p>飞书多维表格左侧可以把表收纳进「分组」(像文件夹)。脚本只负责建表和灌数据,<strong>归组要手动做一下</strong>:上传完成后,在飞书左侧新建一个分组(名字如「8月」),把当月的两张原始数据表——<code>{月}考勤报表</code> 和 <code>{月}打卡时间明细</code>——拖进这个分组。结果表/异常说明/其他员工留在外面即可。这样几个月下来,左侧按月份分组清清爽爽。</p>
+      <span class="t">可重复点,不会堆数据</span>
+      <p>重复上传时,共用三张表会先清空再写此次数据;当月 2 张表(打卡异常说明、其他员工)已存在就复用、清空后重写。历史月表不会被动。</p>
     </div>
   </section>
 
@@ -534,13 +533,8 @@
     </div>
 
     <div class="qa">
-      <p class="q">同一个月重复上传会怎样?</p>
-      <p class="a">脚本认出该月表已存在就复用,先清空旧数据再写当月最新数据,不会重复堆,也不会动历史月表。所以改完数据放心重传。</p>
-    </div>
-
-    <div class="qa">
-      <p class="q">上传后表都堆在左侧,怎么按月份归类?</p>
-      <p class="a">飞书多维表格左侧能建「分组」。每月上传完,手动新建一个分组(如「8月」),把当月的 <code>{月}考勤报表</code> 和 <code>{月}打卡时间明细</code> 两张原始表拖进去就行。归组是飞书界面手动的,脚本不管这部分。</p>
+      <p class="q">重复上传会怎样?</p>
+      <p class="a">共用表「考勤报表 / 打卡时间明细 / 考勤结果总表」每次清空后灌入此次数据;当月 2 张表(「{月}打卡异常说明」「{月}其他员工」)已存在就复用、清空后重写。历史月表不动。改完数据放心重传。</p>
     </div>
   </section>
 

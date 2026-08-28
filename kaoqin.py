@@ -13,9 +13,10 @@
   迟到次数   直接抄报表
 
 输出三张表:
-  SHEET1 考勤整理结果      : 在职 且 (有请假/加班 或 当月入职) 的人 (全自动)
+  SHEET1 考勤整理结果      : 报表全员 (全自动; 上传飞书「考勤结果总表」)
+                             「纳入汇总」= 旧主表口径(在职且请假加班或当月入职), 飞书「汇总」视图按此筛
   SHEET2 打卡记录异常说明  : 有异常指标的人 (指标自动, 定性列留空标黄待人工补)
-  SHEET3 其他员工(无请假加班): 无请假加班 但有异常/离职 的人 (全自动; 当月入职在职已并入SHEET1)
+  SHEET3 其他员工(无请假加班): 无请假加班 但有异常/离职 的人 (全自动; 当月入职在职只在SHEET1)
 
 用法:
   python kaoqin.py 7月考勤报表_20260701_20260731.xlsx
@@ -64,8 +65,9 @@ INPUT_COL_NAMES = {
 # ---------------- 各 sheet 列定义 ----------------
 SHEET1_HEADERS = ["姓名", "应出勤天数", "事假(小时)", "调休假(小时)", "加班总时长(小时)",
                   "年假(天)", "病假(天)", "婚假(天)", "育儿假(天)",
-                  "净事假/调休(小时)", "净加班(小时)", "实际出勤天数", "迟到次数", "备注"]
-SHEET1_WIDTHS = [10, 12, 12, 12, 14, 10, 10, 10, 10, 14, 12, 14, 10, 50]
+                  "净事假/调休(小时)", "净加班(小时)", "实际出勤天数", "迟到次数",
+                  "纳入汇总", "备注"]
+SHEET1_WIDTHS = [10, 12, 12, 12, 14, 10, 10, 10, 10, 14, 12, 14, 10, 10, 50]
 
 SHEET2_HEADERS = ["姓名", "异常类型", "异常详情", "补卡次数", "缺卡次数(上/下)", "备注"]
 SHEET2_WIDTHS = [10, 14, 55, 10, 12, 25]
@@ -196,6 +198,13 @@ def has_leave_or_ot(emp):
     return (emp["事假(小时)"] > 0 or emp["调休假(小时)"] > 0 or emp["加班总时长(小时)"] > 0)
 
 
+def in_summary(emp, year, month):
+    """旧主表口径: 在职 且 (有请假/加班 或 当月入职)。飞书「汇总」视图按此筛。"""
+    return (not is_resigned(emp)) and (
+        has_leave_or_ot(emp) or is_join_this_month(emp, year, month)
+    )
+
+
 def is_resigned(emp):
     """离职: 员工状态含'离职' 或 离职日期非空"""
     if "离职" in emp["员工状态"]:
@@ -269,12 +278,13 @@ def style_rule(cell, bold=False):
 
 
 def write_sheet1(ws, rows, year, month, excluded):
-    """SHEET1 考勤整理结果: 标题 + 表头 + 数据 + 规则说明 + 排除名单"""
+    """SHEET1 考勤整理结果: 标题 + 表头 + 数据 + 规则说明 (+ 排除名单, 全员进表时为空)"""
     # 列宽
     for i, w in enumerate(SHEET1_WIDTHS, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
-    # 标题 A1:L1
-    ws.merge_cells("A1:L1")
+    # 标题铺满全部列
+    last_col = get_column_letter(len(SHEET1_HEADERS))
+    ws.merge_cells(f"A1:{last_col}1")
     ws["A1"] = f"{year}年{month}月考勤整理结果"
     style_title(ws["A1"])
     # 表头 第3行
@@ -284,34 +294,65 @@ def write_sheet1(ws, rows, year, month, excluded):
     r = 4
     for emp in rows:
         comp = compute(emp)
-        # 当月入职在职的新人: 备注补一句入职日
-        # (钉钉应出勤已按入职后算, 实际出勤用该值即可, 这里只标注身份)
-        if is_join_this_month(emp, year, month) and not is_resigned(emp):
-            jd = fmt_date(emp["入职日期"])
-            if comp["备注"].startswith("无"):
-                comp["备注"] = f"{jd}入职，按入职日起算正常出勤"
-            else:
-                comp["备注"] += f"｜{jd}入职，按入职日起算"
+        resigned = is_resigned(emp)
+        join_this_month = is_join_this_month(emp, year, month)
+        # 原先就进主表的人(在职且有请假加班/当月入职): 备注口径不动
+        if in_summary(emp, year, month):
+            if join_this_month:
+                jd = fmt_date(emp["入职日期"])
+                if comp["备注"].startswith("无"):
+                    comp["备注"] = f"{jd}入职，按入职日起算正常出勤"
+                else:
+                    comp["备注"] += f"｜{jd}入职，按入职日起算"
+        else:
+            # 新并入主表: 全勤 / 离职 / 外包实习缺勤
+            extras = []
+            if join_this_month:
+                jd = fmt_date(emp["入职日期"])
+                extras.append(f"{jd}入职，按入职日起算")
+            if resigned:
+                rd = fmt_date(emp["离职日期"])
+                extras.append(f"离职日期{rd}" if rd else "已离职")
+            full_absent = emp["旷工天数"] >= emp["应出勤天数"] and emp["应出勤天数"] > 0
+            if full_absent:
+                ptype = emp["人员类型"]
+                extras.append("外包/实习人员，可能未纳入考勤系统"
+                              if ptype in ("外包", "实习") else "全月缺卡/旷工，需核查")
+            has_day_leave = (emp["年假(天)"] > 0 or emp["病假(天)"] > 0
+                             or emp["婚假(天)"] > 0 or emp["育儿假(天)"] > 0)
+            if extras:
+                tag = "｜".join(extras)
+                if comp["备注"].startswith("无"):
+                    comp["备注"] = tag
+                else:
+                    comp["备注"] += f"｜{tag}"
+            elif (not has_leave_or_ot(emp) and not has_anomaly(emp)
+                  and not has_day_leave):
+                comp["备注"] = "全勤"
         vals = [emp["姓名"], emp["应出勤天数"], emp["事假(小时)"], emp["调休假(小时)"],
                 emp["加班总时长(小时)"], emp["年假(天)"], emp["病假(天)"], emp["婚假(天)"],
                 emp["育儿假(天)"], comp["净事假/调休(小时)"], comp["净加班(小时)"],
-                comp["实际出勤天数"], emp["迟到次数"], comp["备注"]]
+                comp["实际出勤天数"], emp["迟到次数"],
+                "是" if in_summary(emp, year, month) else "否",
+                comp["备注"]]
         for i, v in enumerate(vals, 1):
             cell = ws.cell(row=r, column=i, value=v)
-            style_data(cell, align=LEFT if i == 14 else CENTER)
+            style_data(cell, align=LEFT if i == len(vals) else CENTER)
         r += 1
     # 规则说明区 (空一行)
     rule_start = r + 1
     for k, line in enumerate(RULE_LINES):
         rr = rule_start + k
-        ws.merge_cells(start_row=rr, start_column=1, end_row=rr, end_column=14)
+        ws.merge_cells(start_row=rr, start_column=1, end_row=rr, end_column=len(SHEET1_HEADERS))
         c = ws.cell(row=rr, column=1, value=line)
         style_rule(c, bold=(k == 0))
-    # 排除名单行
-    excl_row = rule_start + len(RULE_LINES)
-    ws.merge_cells(start_row=excl_row, start_column=1, end_row=excl_row, end_column=14)
-    c = ws.cell(row=excl_row, column=1, value=f"已排除人员：{excluded}")
-    style_rule(c)
+    # 排除名单行 (全员进主表时为空, 不写)
+    if excluded:
+        excl_row = rule_start + len(RULE_LINES)
+        ws.merge_cells(start_row=excl_row, start_column=1, end_row=excl_row,
+                       end_column=len(SHEET1_HEADERS))
+        c = ws.cell(row=excl_row, column=1, value=f"已排除人员：{excluded}")
+        style_rule(c)
     ws.freeze_panes = "A4"
 
 
@@ -444,7 +485,7 @@ def compare_with_existing(generated_path, existing_path):
     diff_count = 0
     for name in sorted(set(gr) & set(er)):
         for i, (a, b) in enumerate(zip(gr[name], er[name])):
-            if i in (12, 13):  # 备注列(12=迟到? 重新核对: 列13=迟到,14=备注 → index12=迟到,13=备注)
+            if i in (12, 13, 14):  # 迟到 / 纳入汇总 / 备注, 不比对
                 continue
             # 数值容差
             try:
@@ -482,25 +523,24 @@ def main():
         sys.exit("[错误] 无法从文件名识别月份, 请用 --month 指定 (如 --month 7)")
     print(f"[读取] {len(employees)} 人, 年月={year}年{month}月")
 
-    # 分流规则 (与用户确认口径一致):
-    #   SHEET1: 在职 且 (有请假/加班 或 当月入职)   ← 当月入职新人并入主表, 按入职后算出勤
-    #   SHEET3: 无请假/加班 且 (有异常 或 离职)      ← 当月入职在职已并入SHEET1, 不再在此
+    # 分流规则:
+    #   SHEET1: 报表全员 → 飞书「考勤结果总表」(含全勤/外包实习/离职)
+    #           纳入汇总=是 → 飞书「汇总」视图(旧主表口径)
+    #   SHEET3: 无请假/加班 且 (有异常 或 离职); 当月入职在职只在 SHEET1, 不进此表
     #   SHEET2: 所有有异常指标的人(供打卡异常留档)
-    #   排除名单: 其余 = 全勤无请假加班的在职老员工 (+ 离职但无任何异常的人, 罕见)
-    sheet1, sheet2, sheet3 = [], [], []
+    sheet1 = list(employees)  # 报表全员 → 飞书「考勤结果总表」
+    sheet2, sheet3 = [], []
+    n_hz = 0
     for emp in employees:
-        resigned = is_resigned(emp)
-        join_this_month = is_join_this_month(emp, year, month)
-        if not resigned and (has_leave_or_ot(emp) or join_this_month):
-            # 在职 且 (有请假加班 或 当月入职) → 主表 S1
-            sheet1.append(emp)
-        elif (not has_leave_or_ot(emp)) and (has_anomaly(emp) or has_join_or_leave(emp, year, month)):
-            # 无请假加班, 且有异常/离职 → SHEET3 (当月入职在职已被上面接走)
+        if in_summary(emp, year, month):
+            n_hz += 1
+        # SHEET3 口径不变: 无请假加班且(有异常或离职); 纳入汇总的当月入职在职不进此表
+        if (not in_summary(emp, year, month)) and (not has_leave_or_ot(emp)) and (
+                has_anomaly(emp) or has_join_or_leave(emp, year, month)):
             sheet3.append(emp)
-        # SHEET2: 有异常指标的都记录(在职/离职都留档)
         if has_anomaly(emp):
             sheet2.append(emp)
-    print(f"[分流] SHEET1={len(sheet1)} SHEET2={len(sheet2)} SHEET3={len(sheet3)}")
+    print(f"[分流] SHEET1={len(sheet1)}(纳入汇总={n_hz}) SHEET2={len(sheet2)} SHEET3={len(sheet3)}")
 
     excluded = build_excluded_list(employees, [e["姓名"] for e in sheet1], [e["姓名"] for e in sheet3])
 
@@ -514,7 +554,15 @@ def main():
     write_sheet3(ws3, sheet3, year, month)
 
     out = args.output or f"{month}月考勤整理结果_校验.xlsx"
-    wb.save(out); wb.close()
+    try:
+        wb.save(out)
+    except PermissionError:
+        wb.close()
+        sys.exit(
+            f"[错误] 无法写入 {out}：文件正被 Excel/WPS 打开。\n"
+            f"请先关闭该文件，再点「整理」。"
+        )
+    wb.close()
     print(f"[输出] {out}")
 
     if args.check:
